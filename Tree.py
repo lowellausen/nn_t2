@@ -453,8 +453,15 @@ def cross_validation():
 def print_tree(node: Node, gap):   # instance has only attributes, not a tuple
     if node.att != -1:
         print(gap + "Nodo de atributo: " + str(node.att))
-        for i in range(node.values.__len__()):
-            print_tree(node.children[i], gap + "Nodo de atributo: " + str(node.att) + " " + str(node.att) + str(node.values[i]) + "---->")
+        if attributes_type[node.att] == nominal:
+            for i in range(node.values.__len__()):
+                print_tree(node.children[i], gap + "Nodo de atributo: " + str(node.att) + " " + str(node.att) + str(node.values[i]) + "---->")
+        else:
+            print_tree(node.children[0],
+                       gap + "Nodo de atributo: " + str(node.att) + " " + str(node.att) + "<=" + str(node.values[0]) + "---->")
+            print_tree(node.children[1],
+                       gap + "Nodo de atributo: " + str(node.att) + " " + str(node.att) + ">" + str(node.values[0]) + "---->")
+
     else:
         print(gap + "Nodo de classe: " + str(node.clas))
 
@@ -478,6 +485,7 @@ if __name__ == '__main__':
             m = 4
             benchmark = True
             tree = induction(dataset[:], attributes[:])
+            print("Árvore gerada: ")
             print_tree(tree, "")
         else:
             if sys.argv.__len__() > 2:
@@ -498,4 +506,8 @@ if __name__ == '__main__':
 
             forest = cross_validation()  # gera uma floresta ótima usando crossval(aqui gera arquivom com medias e desv
 
+            print("Primeira árvore da floresta:")
+            print_tree(forest[0], "")
+
+            print("\nAcurácia obtida no conjunto de teste:")
             print(testForest(forest, test))  # imprime a acurácia dessa floresta aplicada ao conj de teste
