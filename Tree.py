@@ -4,16 +4,19 @@ train_size = 0.6
 validation_size = 0.2
 test_size = 0.2
 
-train = []
+ensemble_size = 3
+m = 3
+
+dataset = []
 test = []
 validation = []
 classes_num = 0
 classes = []  # lista com as classes
 attributes = []
-attributes_type = {}  # 0 for nominal e 1 for numeric
+attributes_type = {}  # 0 for nominal e 1 for numerical
 nominal = 0
-numeric = 1
-attributes_values = {}  # dic de listas, cada lista i contém os valores do atributo i
+numerical = 1
+attributes_values = {}  # dicT de listas, cada lista i contem os valores do atributo i
 
 
 class Node:
@@ -62,9 +65,106 @@ def read_benchmark():
         attributes_values[att] = vals
 
     for inst in benchmark_in:
-        train.append(({att: inst[j] for j, att in enumerate(attributes)}, inst[4]))
+        dataset.append(({att: inst[j] for j, att in enumerate(attributes)}, inst[4]))
 
     benchmark_in.clear()
+
+    return
+
+
+def read_haberman():
+    haberman_in = open('haberman.data', 'rU').read().splitlines()
+
+    global classes
+    global classes_num
+    classes_num = 2
+    classes = ['1', '2']
+
+    for i in range(haberman_in.__len__()):
+        haberman_in[i] = haberman_in[i].split(',')
+
+    titles = haberman_in.pop(0)
+    global attributes
+    attributes = [titles[i] for i in range(0, 3)]
+
+    for i, att in enumerate(attributes):
+        vals = []
+        for val in [inst[i] for inst in haberman_in]:
+            if val not in vals:
+                vals.append(val)
+        attributes_type[att] = numerical
+        attributes_values[att] = vals
+
+    for inst in haberman_in:
+        dataset.append(({att: inst[j] for j, att in enumerate(attributes)}, inst[3]))
+
+    haberman_in.clear()
+
+    return
+
+
+def read_cmc():
+    cmc_in = open('cmc.data', 'rU').read().splitlines()
+
+    global classes
+    global classes_num
+    classes_num = 3
+    classes = ['1', '2', '3']
+
+    for i in range(cmc_in.__len__()):
+        cmc_in[i] = cmc_in[i].split(',')
+
+    titles = cmc_in.pop(0)
+    global attributes
+    attributes = [titles[i] for i in range(0, 9)]
+
+    for i, att in enumerate(attributes):
+        vals = []
+        for val in [inst[i] for inst in cmc_in]:
+            if val not in vals:
+                vals.append(val)
+        if i == 0 or i == 3:
+            attributes_type[att] = numerical
+        else:
+            attributes_type[att] = nominal
+        attributes_values[att] = vals
+
+    for inst in cmc_in:
+        dataset.append(({att: inst[j] for j, att in enumerate(attributes)}, inst[9]))
+
+    cmc_in.clear()
+
+    return
+
+
+def read_wine():
+    wine_in = open('wine.data', 'rU').read().splitlines()
+
+    global classes
+    global classes_num
+    classes_num = 3
+    classes = ['1', '2', '3']
+
+    for i in range(wine_in.__len__()):
+        wine_in[i] = wine_in[i].split(',')
+
+    titles = wine_in.pop(0)
+    global attributes
+    attributes = [titles[i] for i in range(1, 14)]
+
+    for i, att in enumerate(attributes):
+        vals = []
+        for val in [inst[i+1] for inst in wine_in]:
+            if val not in vals:
+                vals.append(val)
+
+        attributes_type[att] = numerical
+        attributes_values[att] = vals
+
+    for inst in wine_in:
+        dataset.append(({att: inst[j+1] for j, att in enumerate(attributes)}, inst[0]))
+
+    wine_in.clear()
 
     return
 
@@ -103,6 +203,13 @@ def gain(d, a_index):
     return info(d) - infoa(d, a_index)
 
 
+def attSampling(l):
+    if l.__len__() > m:
+        return random.sample(l, m)
+    else:
+        return l
+
+
 def bestAtt(d, l):
     attributes_scores = []
     for a in l:
@@ -126,10 +233,10 @@ def induction(d, l):
         return n
 
     if l.__len__() == 0:  # 3
-        n.setClass(classes_freq.index(max(classes_freq)))
+        n.setClass(max(classes_freq, key=lambda key: classes_freq[key]))
         return n
 
-    a = bestAtt(d, l)  # 4.1
+    a = bestAtt(d, attSampling(l))  # 4.1   em vez de passar l passa uma amostragem aleatória de m elementos de l
     n.setAtt(a)  # 4.2
     l.remove(a)  # 4.3
 
@@ -138,10 +245,10 @@ def induction(d, l):
 
         if dv.__len__() == 0:
             leaf = Node()
-            leaf.setClass(classes_freq.index(max(classes_freq)))
+            leaf.setClass(max(classes_freq, key=lambda key: classes_freq[key]))
             n.children.append(leaf)
         else:
-            n.children.append(induction(dv, l))
+            n.children.append(induction(dv, l[:]))
 
     return n
 
@@ -154,7 +261,7 @@ def classifier(node: Node, instance: list):   # instance has only attributes, no
                 if val == instance[att]:
                     return classifier(node.children[i], instance)
 
-        elif attributes_type[att] == numeric:
+        elif attributes_type[att] == numerical:
             if instance[att] <= node.values:
                 return classifier(node.children[0], instance)
             else:
@@ -166,12 +273,43 @@ def classifier(node: Node, instance: list):   # instance has only attributes, no
     return
 
 
+def genBootstraps(m):
+    bootstraps = []
+    for i in range(m):
+        bootstrap = ([], [])  #  uma tupla com treino e teste
+        bootstrap[0].extend(random.choices(dataset, k=dataset.__len__()))
+        bootstrap[1].extend([inst for inst in dataset if inst not in bootstrap[0]])
+        bootstraps.append(bootstrap)
+
+    return bootstraps
+
+
+def majorityVoting(forest, instance):
+    votes = {cls: 0 for cls in classes}
+    for tree in forest:
+        votes[classifier(tree, instance)] += 1
+
+    return max(votes, key=lambda key: votes[key])
+
+
+def testForest(forest, test_data):
+    acc = 0.0
+    for inst in test_data:
+        if inst[1] == majorityVoting(forest, inst[0]):
+            acc += 1
+
+    return acc/test_data.__len__()
+
+
 if __name__ == '__main__':
     read_benchmark()
+    #  read_haberman()
+    #  read_cmc()
+    #  read_wine()
 
-    tree = Tree()
-    d = train
-    l = attributes
-    tree.root = induction(d, l)
-    print(classifier(tree.root, d[0][0]))
+    bootstraps = genBootstraps(ensemble_size)
+    forest = [induction(bootstrap[0], attributes[:]) for bootstrap in bootstraps]
+
+    print(majorityVoting(forest, dataset[0][0]))
+    print(testForest(forest, dataset))
     print("haha")
