@@ -1,23 +1,32 @@
-import math, random, statistics
+import math, random, statistics, sys
 
-train_size = 0.8
+train_size = 0.8  # proporções de treino/validação e teste
 test_size = 0.2
-k = 10
+k = 10  # k folds para o cross-val
 
-ensemble_size = 3
-m = 3
+ntree_vals = [10, 25, 50, 60]  # valores que serão usados nos cross-vals
+m = 3  # valor m de amostragem de atributos. é setado(na leitura do dataset) como raiz da quant de atributos do prob
 
-dataset = []
-train = []
+benchmark = False  # flag para imprimir as informaçãos quando for chamado o benchmark
+
+dataset = []  # onde é lido o dataset inicialmente como uma lista de instancias (tuplas) do tipo (atributos, classe)
+#                # atributos de uma instancia são sempre um dicionario onde a key é o nome do att
+#                                                                                   e o valor, seu valor na instancia
+train = []  # train e test seguem modelo do dataset
 test = []
-validation = []
-classes_num = 0
+classes_num = 0  # onde será setado  o número de classes preditivas do dataset
 classes = []  # lista com as classes
-attributes = []
-attributes_type = {}  # 0 for nominal e 1 for numerical
+attributes = []  # lista com o nome de cada atributo do problema
+attributes_type = {}  # dicionário onde a key é o nome do atributo e o valor o seu tipo. nominal ou numerical
 nominal = 0
 numerical = 1
-attributes_values = {}  # dicT de listas, cada lista i contem os valores do atributo i
+attributes_values = {}  # dicT de listas, cada key é o nome do att e contem os valores do att
+
+"""
+Uma árvore é representada somente pelo seu nodo raíz. nodo é a única classe usada no trabalho
+um nodo pode ser de atributo, que é um nodo interno que tem um filho para cada valor de atributo
+ou um nodo de classe, que é um nodo folha que tem uma predição de classe
+"""
 
 
 class Node:
@@ -35,11 +44,6 @@ class Node:
     def setClass(self, cls):
         self.clas = cls
         return
-
-
-class Tree:
-    def __init__(self):
-        self.root = Node()
 
 
 def read_benchmark():
@@ -229,6 +233,9 @@ def bestAtt(d, l):
     attributes_scores = []
     for a in l:
         attributes_scores.append(gain(d, a))
+
+    if benchmark:
+        print("Ganho de informação: " + str(max(attributes_scores)))
     return l[attributes_scores.index(max(attributes_scores))]
 
 
@@ -379,6 +386,7 @@ def resolve_numericals():
 
     return
 
+
 def genFolds(l):    # divide o conjunto de treino em k folds
     #  fold_size = int(math.ceil(train.__len__()/k))
     l_size = l.__len__()
@@ -418,13 +426,23 @@ def single_cross(ntree, folds):   # realiza o cross validaton para um conjunto d
 
 def cross_validation():
     folds = genFolds(train[:])
-    ntree_vals = [10, 25, 50, 60]
-    results = {}  # dict ntree: (media, desvio)
+    results = {}  # dict ntree: (media, desvio)       media e desvio de accuracy
 
     for ntree in ntree_vals:
         results[ntree] = single_cross(ntree, folds)
 
     ntree = max(results, key=lambda key: results[key][0])
+
+    out_name = sys.argv[1]
+    for ntree in ntree_vals:
+        out_name = out_name + str(ntree) + '_'
+    out = open(out_name + '.csv', 'w')
+
+    out.write("ntree;media;desvio\n")
+    for ntree in ntree_vals:
+        out.write(str(ntree) + ';' + str(results[ntree][0]) + ';' + str(results[ntree][1]) + '\n')
+
+    out.close()
 
     bootstraps = genBootstraps(ntree, train)    # treina uma floresta usando o valor ótimo e com conj treino inteiro
     forest = [induction(bootstrap[0], attributes[:]) for bootstrap in bootstraps]
@@ -432,25 +450,52 @@ def cross_validation():
     return forest
 
 
+def print_tree(node: Node, gap):   # instance has only attributes, not a tuple
+    if node.att != -1:
+        print(gap + "Nodo de atributo: " + str(node.att))
+        for i in range(node.values.__len__()):
+            print_tree(node.children[i], gap + "----")
+    else:
+        print(gap + "Nodo de classe: " + str(node.clas))
+
+    return
+
+
 if __name__ == '__main__':
-    #read_benchmark()
-    read_haberman()
-    #  read_cmc()
-    #  read_wine()
-    random.seed("cidy")
-    m = int(math.sqrt(attributes.__len__()))   #  dica do relatório
+    #  o programa deve obrigatoriamente receber um parametro que e o arquivos de dados a ser utilizado
+    # opções:
+    # - benchmark: gera uma unica arvore de benchmark, imprimindo o ganho em cada node split, e a árvore final
+    # - haberman/cmc/wine: gera um floresta aleatória usando 10 fold cross validation
+    # os valores de ntree pode ser dados como parametros apos o nome do dataset ex: "py -3 Tree.py cmc 15 20 25 50 75"
+    # irá fazer 5 cross-validations usando 15 20 25 50 e 75 como valores de ntree, gerando uma floresta final com o
+    # valor ntree ótimo, também gerando um arquivo haberman15_20_25_50_75_.csv com média e desvio de acurácia
+    # para cada valor de ntree. valores default são 10 25 50 60
+    # ao final é impresso a acurácia medida com o modelo ótimo no conjunto de testes
 
-    splitDataset()
+    if sys.argv.__len__() > 1:
+        if sys.argv[1] == "benchmark":
+            read_benchmark()
+            m = 4
+            benchmark = True
+            tree = induction(dataset[:], attributes[:])
+            print_tree(tree, "")
+        else:
+            if sys.argv.__len__() > 2:
+                ntree_vals = [int(sys.argv[i]) for i in range(2, sys.argv.__len__())]
+            if sys.argv[1] == "haberman":
+                read_haberman()
+            if sys.argv[1] == "cmc":
+                read_cmc()
+            if sys.argv[1] == "wine":
+                read_wine()
 
-    resolve_numericals()
+            random.seed("cidy")  # seed fixa em cidy, for no reason
+            m = int(math.sqrt(attributes.__len__()))  # dica da definição
 
-    forest = cross_validation()
+            splitDataset()  # divide treino e teste
 
-    print(testForest(forest, test))
+            resolve_numericals()  # acha valor de corte para atributos continuos,de acordo com entropia no conj treino
 
-    #  bootstraps = genBootstraps(ensemble_size)
-    #  forest = [induction(bootstrap[0], attributes[:]) for bootstrap in bootstraps]
+            forest = cross_validation()  # gera uma floresta ótima usando crossval(aqui gera arquivom com medias e desv
 
-    #  print(majorityVoting(forest, train[0][0]))
-    #  print(testForest(forest, train))
-    print("haha")
+            print(testForest(forest, test))  # imprime a acurácia dessa floresta aplicada ao conj de teste
