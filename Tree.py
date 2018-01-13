@@ -454,7 +454,7 @@ def print_tree(node: Node, gap):   # instance has only attributes, not a tuple
     if node.att != -1:
         print(gap + "Nodo de atributo: " + str(node.att))
         for i in range(node.values.__len__()):
-            print_tree(node.children[i], gap + "----")
+            print_tree(node.children[i], gap + "Nodo de atributo: " + str(node.att) + " " + str(node.att) + str(node.values[i]) + "---->")
     else:
         print(gap + "Nodo de classe: " + str(node.clas))
 
